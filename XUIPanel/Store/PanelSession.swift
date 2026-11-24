@@ -247,10 +247,11 @@ final class PanelSession: ObservableObject {
     // MARK: - 入站操作
 
     func setEnabled(_ inbound: InboundSummary, enabled: Bool) {
+        guard let client = client, !isWorking else { return }
+        // 先乐观更新界面，失败再回滚，避免开关在请求期间弹回去。
         if let index = index(of: inbound.id) {
             inbounds[index].enabled = enabled
         }
-        guard let client = client, !isWorking else { return }
         isWorking = true
 
         client.setInbound(inbound, enabled: enabled) { [weak self] result in
