@@ -144,7 +144,8 @@ final class PanelAPIClient: NSObject {
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
-                completion(status == 401 || status == 403 ? .unauthorized : .http(status))
+                let apiError: PanelAPIError = (status == 401 || status == 403) ? .unauthorized : .http(status)
+                completion(apiError)
                 return
             }
             guard let data = data,
@@ -345,7 +346,8 @@ final class PanelAPIClient: NSObject {
                 }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 guard (200..<300).contains(status), let location = location else {
-                    completion(.failure(status == 401 || status == 403 ? .unauthorized : .http(status)))
+                    let apiError: PanelAPIError = (status == 401 || status == 403) ? .unauthorized : .http(status)
+                    completion(.failure(apiError))
                     return
                 }
                 let stamp = Int(Date().timeIntervalSince1970)

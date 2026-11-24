@@ -113,7 +113,7 @@ struct ServerListView: View {
             }
         }
         .confirmationDialog(
-            "删除「\(confirmDelete?.name ?? "")」？",
+            Text("删除「\(confirmDelete?.name ?? "")」？"),
             isPresented: Binding(
                 get: { confirmDelete != nil },
                 set: { if !$0 { confirmDelete = nil } }

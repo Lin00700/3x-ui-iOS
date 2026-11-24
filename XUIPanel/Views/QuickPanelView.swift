@@ -224,7 +224,7 @@ struct QuickPanelView: View {
                 }
             }
             .confirmationDialog(
-                toggleTitle,
+                Text(toggleTitle),
                 isPresented: Binding(
                     get: { model.pendingToggle != nil },
                     set: { if !$0 { model.pendingToggle = nil } }
