@@ -16,6 +16,8 @@ struct PanelOverview {
     var inbounds: [InboundSummary]
     var netUp: Double?
     var netDown: Double?
+    var tcpCount: Double?
+    var udpCount: Double?
     var publicIPv4: String
     var publicIPv6: String
     var fetchedAt: Date

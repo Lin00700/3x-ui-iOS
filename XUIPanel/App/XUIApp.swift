@@ -21,6 +21,16 @@ struct XUIApp: App {
         UINavigationBar.appearance().scrollEdgeAppearance = barAppearance
         UINavigationBar.appearance().compactAppearance = barAppearance
         UINavigationBar.appearance().tintColor = UIColor(Ink.ink)
+
+        // 原生四页签的 TabView：宣纸底 + 墨色图标，选中用朱砂。
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithOpaqueBackground()
+        tabAppearance.backgroundColor = UIColor(Ink.paper)
+        tabAppearance.shadowColor = UIColor(Ink.ink).withAlphaComponent(0.08)
+        UITabBar.appearance().standardAppearance = tabAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+        UITabBar.appearance().tintColor = UIColor(Ink.cinnabar)
+        UITabBar.appearance().unselectedItemTintColor = UIColor(Ink.inkFaint)
     }
 
     var body: some Scene {

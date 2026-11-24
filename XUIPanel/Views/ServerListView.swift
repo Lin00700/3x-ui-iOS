@@ -5,7 +5,7 @@ struct ServerListView: View {
     @EnvironmentObject private var settings: AppSettings
 
     var onOpen: (ServerProfile) -> Void
-    var onQuick: (ServerProfile) -> Void
+    var onWeb: (ServerProfile) -> Void
     var onEdit: (ServerProfile) -> Void
     var onAdd: () -> Void
     var onSettings: () -> Void
@@ -32,9 +32,14 @@ struct ServerListView: View {
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .contextMenu {
                                 Button {
-                                    onQuick(profile)
+                                    onOpen(profile)
                                 } label: {
-                                    Label("快捷概览", systemImage: "chart.bar.xaxis")
+                                    Label("原生面板", systemImage: "square.grid.2x2")
+                                }
+                                Button {
+                                    onWeb(profile)
+                                } label: {
+                                    Label("原版网页", systemImage: "safari")
                                 }
                                 Button {
                                     onEdit(profile)
@@ -68,9 +73,9 @@ struct ServerListView: View {
                             }
                             .swipeActions(edge: .leading) {
                                 Button {
-                                    onQuick(profile)
+                                    onWeb(profile)
                                 } label: {
-                                    Label("概览", systemImage: "chart.bar.xaxis")
+                                    Label("网页", systemImage: "safari")
                                 }
                                 .tint(Ink.moss)
                             }
@@ -142,9 +147,10 @@ struct ServerListView: View {
                 subtitle: store.servers.isEmpty ? "把 VPS 上的面板装进手机" : "\(store.servers.count) 台服务器",
                 seal: "墨"
             )
-            Text("点开即进入原版 3x-ui 网页，表格、订阅、设置原样呈现。")
+            Text("点开即进入原生 App 界面：概览、入站、订阅、工具四个页签，右上角可随时切到原版网页。")
                 .font(.system(size: 12))
                 .foregroundColor(Ink.inkFaint)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 6)
         .padding(.bottom, 2)
@@ -166,7 +172,7 @@ struct ServerListView: View {
                         .stroke(Ink.ink.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
                 )
             }
-            Text("长按拖动可调整顺序；左滑打开快捷概览。")
+            Text("长按拖动可调整顺序；左滑打开原版网页；长按可建原生面板。")
                 .font(.system(size: 11))
                 .foregroundColor(Ink.inkFaint)
         }
@@ -239,9 +245,9 @@ struct ServerListView: View {
             Spacer(minLength: 4)
 
             Button {
-                onQuick(profile)
+                onWeb(profile)
             } label: {
-                Image(systemName: "chart.bar.xaxis")
+                Image(systemName: "safari")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(Ink.indigo)
                     .frame(width: 32, height: 32)

@@ -74,8 +74,8 @@ struct PanelScreen: View {
                 switchTo(profile)
             }
         }
-        .sheet(isPresented: $showQuick) {
-            QuickPanelView(
+        .fullScreenCover(isPresented: $showQuick) {
+            NativePanelShellView(
                 profile: currentProfile,
                 username: store.credentials(for: currentProfile.id).username,
                 password: store.password(for: currentProfile.id)
@@ -139,7 +139,7 @@ struct PanelScreen: View {
                 Button {
                     showQuick = true
                 } label: {
-                    Image(systemName: "chart.bar.xaxis")
+                    Image(systemName: "square.grid.2x2")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(Ink.indigo)
                         .frame(width: 34, height: 34)

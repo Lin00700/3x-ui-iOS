@@ -95,6 +95,17 @@ final class ServerStore: ObservableObject {
         return profile
     }
 
+    /// 原生面板里登录成功后，把账号密码补进钥匙串（不动地址等偏好）。
+    func saveCredentials(id: UUID, username: String, password: String) {
+        KeychainStore.set(username, account: KeychainStore.usernameAccount(for: id))
+        KeychainStore.set(password, account: KeychainStore.passwordAccount(for: id))
+        if let index = servers.firstIndex(where: { $0.id == id }), servers[index].username != username {
+            servers[index].username = username
+            servers[index].updatedAt = Date()
+            persist()
+        }
+    }
+
     func delete(id: UUID) {
         servers.removeAll(where: { $0.id == id })
         KeychainStore.delete(account: KeychainStore.passwordAccount(for: id))

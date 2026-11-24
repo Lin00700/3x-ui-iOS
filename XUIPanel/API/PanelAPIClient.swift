@@ -249,6 +249,8 @@ final class PanelAPIClient: NSObject {
             inbounds: parsedInbounds.sorted { $0.port < $1.port },
             netUp: InboundSummary.number(netIO["up"]),
             netDown: InboundSummary.number(netIO["down"]),
+            tcpCount: InboundSummary.number(status["tcpCount"]),
+            udpCount: InboundSummary.number(status["udpCount"]),
             publicIPv4: InboundSummary.string(publicIP["ipv4"]) ?? "",
             publicIPv6: InboundSummary.string(publicIP["ipv6"]) ?? "",
             fetchedAt: Date()
@@ -367,7 +369,7 @@ final class PanelAPIClient: NSObject {
 
     // MARK: - 请求
 
-    private func requestEnvelope(path: String, method: String = "GET", body: Data? = nil, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
+    func requestEnvelope(path: String, method: String = "GET", body: Data? = nil, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
         var url = apiBaseURL
         for component in path.split(separator: "/") where !component.isEmpty {
             url.appendPathComponent(String(component))
@@ -382,7 +384,7 @@ final class PanelAPIClient: NSObject {
         perform(request, completion: completion)
     }
 
-    private func perform(_ request: URLRequest, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
+    func perform(_ request: URLRequest, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
         session.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(.network(error.localizedDescription)))

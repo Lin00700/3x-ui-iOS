@@ -9,13 +9,13 @@ struct RootView: View {
     @State private var showSettings = false
 
     private enum Route: Identifiable {
-        case panel(ServerProfile)
-        case quick(ServerProfile)
+        case native(ServerProfile)
+        case web(ServerProfile)
 
         var id: String {
             switch self {
-            case .panel(let profile): return "panel-\(profile.id.uuidString)"
-            case .quick(let profile): return "quick-\(profile.id.uuidString)"
+            case .native(let profile): return "native-\(profile.id.uuidString)"
+            case .web(let profile): return "web-\(profile.id.uuidString)"
             }
         }
     }
@@ -23,8 +23,8 @@ struct RootView: View {
     var body: some View {
         NavigationView {
             ServerListView(
-                onOpen: { profile in route = .panel(profile) },
-                onQuick: { profile in route = .quick(profile) },
+                onOpen: { profile in route = .native(profile) },
+                onWeb: { profile in route = .web(profile) },
                 onEdit: { profile in openEditor(for: profile) },
                 onAdd: { addServer() },
                 onSettings: { showSettings = true }
@@ -34,14 +34,14 @@ struct RootView: View {
         .navigationViewStyle(.stack)
         .fullScreenCover(item: $route) { route in
             switch route {
-            case .panel(let profile):
-                PanelScreen(
+            case .native(let profile):
+                NativePanelShellView(
                     profile: profile,
                     username: store.credentials(for: profile.id).username,
                     password: store.password(for: profile.id)
                 )
-            case .quick(let profile):
-                QuickPanelView(
+            case .web(let profile):
+                PanelScreen(
                     profile: profile,
                     username: store.credentials(for: profile.id).username,
                     password: store.password(for: profile.id)
