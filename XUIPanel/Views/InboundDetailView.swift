@@ -78,7 +78,7 @@ struct InboundDetailView: View {
                                 .font(.system(size: 14, weight: .medium))
                         }
                         Button {
-                            onWeb()
+                            openWebPanel()
                         } label: {
                             Image(systemName: "safari")
                                 .font(.system(size: 14, weight: .medium))
@@ -446,6 +446,14 @@ struct InboundDetailView: View {
     private func deleteClient(_ target: ClientSummary) {
         guard let inbound = inbound else { return }
         session.deleteClient(inbound: inbound, client: target) { _ in }
+    }
+
+    /// 详情本身是 sheet，先收起再交给上层打开网页，避免两层模态互相抢。
+    private func openWebPanel() {
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            onWeb()
+        }
     }
 
     private func copyAllLinks() {
