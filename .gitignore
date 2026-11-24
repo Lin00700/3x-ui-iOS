@@ -1,0 +1,21 @@
+# Xcode / build
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+XUIPanel.xcodeproj/
+XUIPanel.xcworkspace/
+Payload/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store
+
+# 系统 / 编辑器
+*.swp
+.idea/
+.vscode/
