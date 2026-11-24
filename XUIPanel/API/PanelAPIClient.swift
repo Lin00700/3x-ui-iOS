@@ -35,9 +35,44 @@ final class PanelAPIClient: NSObject {
 
     private let username: String
     private let password: String
+    /// 面板开了两步验证时填的验证码；没开就留空。
+    private let twoFactorCode: String
     private let trustSelfSigned: Bool
     private var didAttemptLogin = false
     private var loginError: PanelAPIError?
+
+    // MARK: - CSRF
+
+    /// 3x-ui v3+ 的 POST /login 和所有写接口都由 CSRFMiddleware 保护：
+    /// 先 GET {base}/csrf-token 把令牌写进 session，再带 X-CSRF-Token 回来，否则 403。
+    /// v2.x 没有这个路由，取不到令牌就按老版本继续请求（v2 不校验 CSRF）。
+    private let csrfLock = NSLock()
+    private var storedCSRFToken: String?
+    private let csrfQueue = DispatchQueue(label: "app.xui.csrf-token")
+    private var csrfWaiters: [(String?) -> Void] = []
+    private var csrfFetching = false
+
+    private var csrfToken: String? {
+        get {
+            csrfLock.lock()
+            defer { csrfLock.unlock() }
+            return storedCSRFToken
+        }
+        set {
+            csrfLock.lock()
+            storedCSRFToken = newValue
+            csrfLock.unlock()
+        }
+    }
+
+    private static func isSafeMethod(_ method: String) -> Bool {
+        switch method.uppercased() {
+        case "GET", "HEAD", "OPTIONS", "TRACE":
+            return true
+        default:
+            return false
+        }
+    }
 
     private var session: URLSession {
         if let existing = cachedSession { return existing }
@@ -82,17 +117,18 @@ final class PanelAPIClient: NSObject {
         return root.appendingPathComponent("panel").appendingPathComponent("api")
     }
 
-    init(rootURL: URL, apiBaseURL: URL, username: String, password: String, trustSelfSigned: Bool) {
+    init(rootURL: URL, apiBaseURL: URL, username: String, password: String, twoFactorCode: String = "", trustSelfSigned: Bool) {
         self.rootURL = rootURL
         self.apiBaseURL = apiBaseURL
         self.username = username
         self.password = password
+        self.twoFactorCode = twoFactorCode
         self.trustSelfSigned = trustSelfSigned
         super.init()
     }
 
     /// 从服务器档案建客户端；地址无效时返回 nil。
-    static func make(profile: ServerProfile, username: String, password: String) -> PanelAPIClient? {
+    static func make(profile: ServerProfile, username: String, password: String, twoFactorCode: String = "") -> PanelAPIClient? {
         guard let url = profile.url,
               let root = PanelAPIClient.rootURL(for: url),
               let api = PanelAPIClient.apiBaseURL(for: url) else {
@@ -103,6 +139,7 @@ final class PanelAPIClient: NSObject {
             apiBaseURL: api,
             username: username,
             password: password,
+            twoFactorCode: twoFactorCode,
             trustSelfSigned: profile.trustSelfSigned
         )
     }
@@ -128,40 +165,163 @@ final class PanelAPIClient: NSObject {
         }
     }
 
-    private func login(completion: @escaping (PanelAPIError?) -> Void) {
-        let loginURL = rootURL.appendingPathComponent("login")
-        var request = URLRequest(url: loginURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 18)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let body = "username=\(PanelAPIClient.formEncode(username))&password=\(PanelAPIClient.formEncode(password))"
-        request.httpBody = Data(body.utf8)
+    /// 登录：先取 CSRF 令牌，再带 X-CSRF-Token 发 POST /login。
+    /// `attempt` 只在内层重试时用一次：旧令牌导致 403 时换新令牌再试。
+    private func login(attempt: Int = 0, completion: @escaping (PanelAPIError?) -> Void) {
+        fetchCSRFToken(force: attempt > 0) { [weak self] token in
+            guard let self = self else { return }
+            let loginURL = self.rootURL.appendingPathComponent("login")
+            var request = URLRequest(url: loginURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 18)
+            request.httpMethod = "POST"
+            request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let token = token, !token.isEmpty {
+                request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+            }
 
-        session.dataTask(with: request) { data, response, error in
-            if let error = error {
-                completion(.network(error.localizedDescription))
+            var fields = [
+                "username=\(PanelAPIClient.formEncode(self.username))",
+                "password=\(PanelAPIClient.formEncode(self.password))"
+            ]
+            let code = self.twoFactorCode.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !code.isEmpty {
+                fields.append("twoFactorCode=\(PanelAPIClient.formEncode(code))")
+            }
+            request.httpBody = Data(fields.joined(separator: "&").utf8)
+
+            self.session.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    completion(.network(error.localizedDescription))
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 403 && attempt == 0 {
+                    // 令牌与旧 session 对不上（比如网页端重登过）：换一枚再试一次。
+                    self.login(attempt: 1, completion: completion)
+                    return
+                }
+                guard (200..<300).contains(status) else {
+                    let apiError: PanelAPIError = (status == 401 || status == 403) ? .unauthorized : .http(status)
+                    completion(apiError)
+                    return
+                }
+                let succeed: () -> Void = { [weak self] in
+                    guard let self = self else {
+                        completion(nil)
+                        return
+                    }
+                    // 3x-ui 的 SetLoginUser 会把 session 清空重建，旧 CSRF 令牌随之作废，
+                    // 丢掉缓存并预取一枚新的，后续写请求直接用。
+                    self.csrfToken = nil
+                    self.syncCookiesToWebView()
+                    self.fetchCSRFToken { _ in }
+                    completion(nil)
+                }
+                guard let data = data,
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    // 有的版本登录成功返回 HTML 跳转，只要 2xx 就当作登录成功。
+                    succeed()
+                    return
+                }
+                let success = InboundSummary.boolean(object["success"]) ?? true
+                if success {
+                    succeed()
+                } else {
+                    let message = InboundSummary.string(object["msg"]) ?? "账号或密码不正确"
+                    completion(.api(message))
+                }
+            }.resume()
+        }
+    }
+
+    // MARK: - CSRF 令牌
+
+    /// 取一次 CSRF 令牌（多个并发请求共用同一次网络请求）。
+    /// 已经缓存到就直接回调；`force` 用于令牌失效后重新取。
+    /// v2.x 没有 /csrf-token 路由，或者返回的不是 JSON，就回调 nil，照旧版方式请求。
+    func fetchCSRFToken(force: Bool = false, completion: @escaping (String?) -> Void) {
+        if !force, let token = csrfToken {
+            completion(token)
+            return
+        }
+        csrfQueue.async { [weak self] in
+            guard let self = self else {
+                completion(nil)
+                return
+            }
+            if !force, let token = self.csrfToken {
+                completion(token)
+                return
+            }
+            if self.csrfFetching {
+                self.csrfWaiters.append(completion)
+                return
+            }
+            self.csrfFetching = true
+            self.requestCSRFToken { token in
+                self.csrfQueue.async {
+                    self.csrfFetching = false
+                    let waiters = self.csrfWaiters
+                    self.csrfWaiters = []
+                    for waiter in waiters {
+                        waiter(token)
+                    }
+                    completion(token)
+                }
+            }
+        }
+    }
+
+    private func requestCSRFToken(completion: @escaping (String?) -> Void) {
+        var url = rootURL
+        url.appendPathComponent("csrf-token")
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
+        request.httpMethod = "GET"
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        session.dataTask(with: request) { [weak self] data, response, error in
+            guard error == nil else {
+                completion(nil)
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard (200..<300).contains(status) else {
-                let apiError: PanelAPIError = (status == 401 || status == 403) ? .unauthorized : .http(status)
-                completion(apiError)
-                return
-            }
-            guard let data = data,
+            guard (200..<300).contains(status), let data = data,
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                // 有的版本登录成功返回 HTML 跳转，只要 2xx 就当作登录成功。
+                // v2.x：404 或返回登录页 HTML，视为没有 CSRF 机制。
                 completion(nil)
                 return
             }
-            let success = InboundSummary.boolean(object["success"]) ?? true
-            if success {
+            let token = (InboundSummary.string(object["obj"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else {
                 completion(nil)
-            } else {
-                let message = InboundSummary.string(object["msg"]) ?? "账号或密码不正确"
-                completion(.api(message))
+                return
             }
+            self?.csrfToken = token
+            completion(token)
         }.resume()
+    }
+
+    /// 原生登录成功后，把 cookie 同步给 WKWebView，让「原版网页」也直接是登录态。
+    private func syncCookiesToWebView() {
+        let host = rootURL.host ?? ""
+        let all = HTTPCookieStorage.shared.cookies ?? []
+        var matched: [HTTPCookie] = []
+        for cookie in all {
+            let domain = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : cookie.domain
+            if host.isEmpty || domain.isEmpty || host == domain || host.hasSuffix(domain) {
+                matched.append(cookie)
+            }
+        }
+        guard !matched.isEmpty else { return }
+        let cookies = matched
+        DispatchQueue.main.async {
+            let store = WKWebsiteDataStore.default().httpCookieStore
+            for cookie in cookies {
+                store.setCookie(cookie, completionHandler: nil)
+            }
+        }
     }
 
     // MARK: - 概览
@@ -340,6 +500,7 @@ final class PanelAPIClient: NSObject {
             url.appendPathComponent("getDb")
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)
             request.httpMethod = "GET"
+            request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
 
             self.session.downloadTask(with: request) { location, response, error in
                 if let error = error {
@@ -385,12 +546,57 @@ final class PanelAPIClient: NSObject {
     }
 
     func perform(_ request: URLRequest, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
-        session.dataTask(with: request) { data, response, error in
+        sendWithCSRF(request, canRetry: true, completion: completion)
+    }
+
+    /// 所有请求的统一入口：
+    /// 1. 一律带 X-Requested-With（api.go 靠它把未登录区分为 401 而不是 404）；
+    /// 2. 写请求带 X-CSRF-Token，还没令牌就先取（网页登录后回来的场景）；
+    /// 3. 写请求 403 时换一枚新令牌重放一次。
+    private func sendWithCSRF(_ original: URLRequest, canRetry: Bool, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
+        var request = original
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+
+        guard !PanelAPIClient.isSafeMethod(request.httpMethod ?? "GET") else {
+            sendRaw(request, canRetry: false, completion: completion)
+            return
+        }
+        if let token = csrfToken {
+            request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+            sendRaw(request, canRetry: canRetry, completion: completion)
+            return
+        }
+        // 没有令牌（第一次写操作，或刚从网页登录回来）：先取一次再发。
+        fetchCSRFToken { [weak self] token in
+            guard let self = self else { return }
+            var ready = original
+            ready.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            if let token = token {
+                ready.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+            }
+            self.sendRaw(ready, canRetry: canRetry, completion: completion)
+        }
+    }
+
+    private func sendRaw(_ request: URLRequest, canRetry: Bool, completion: @escaping (Result<Any, PanelAPIError>) -> Void) {
+        session.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 completion(.failure(.network(error.localizedDescription)))
                 return
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // CSRF 令牌失效：取新令牌重放一次，再失败才算真失败。
+            if status == 403, canRetry, let self = self,
+               !PanelAPIClient.isSafeMethod(request.httpMethod ?? "GET") {
+                self.fetchCSRFToken(force: true) { token in
+                    var retry = request
+                    if let token = token {
+                        retry.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+                    }
+                    self.sendRaw(retry, canRetry: false, completion: completion)
+                }
+                return
+            }
             guard status != 401 && status != 403 else {
                 completion(.failure(.unauthorized))
                 return

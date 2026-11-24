@@ -28,15 +28,18 @@ final class PanelSession: ObservableObject {
     private(set) var client: PanelAPIClient?
     private var username: String
     private var password: String
+    /// 两步验证码（TOTP）随时效变，不存钥匙串，只在本次会话里用。
+    private var twoFactorCode: String
     private var started = false
     private var settingsLoaded = false
     private var timer: Timer?
     private var toastItem: DispatchWorkItem?
 
-    init(profile: ServerProfile, username: String, password: String) {
+    init(profile: ServerProfile, username: String, password: String, twoFactorCode: String = "") {
         self.profile = profile
         self.username = username
         self.password = password
+        self.twoFactorCode = twoFactorCode
     }
 
     deinit {
@@ -104,7 +107,7 @@ final class PanelSession: ObservableObject {
         isLoading = true
         WebCookieReader.seedCookies(for: url) { [weak self] in
             guard let self = self else { return }
-            guard let client = PanelAPIClient.make(profile: self.profile, username: self.username, password: self.password) else {
+            guard let client = PanelAPIClient.make(profile: self.profile, username: self.username, password: self.password, twoFactorCode: self.twoFactorCode) else {
                 self.isLoading = false
                 self.errorText = "地址无效，无法定位面板 API"
                 return
@@ -187,8 +190,9 @@ final class PanelSession: ObservableObject {
 
     // MARK: - 登录
 
-    func login(username: String, password: String, completion: @escaping (Bool) -> Void) {
-        guard let fresh = PanelAPIClient.make(profile: profile, username: username, password: password) else {
+    func login(username: String, password: String, twoFactorCode: String = "", completion: @escaping (Bool) -> Void) {
+        let code = twoFactorCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let fresh = PanelAPIClient.make(profile: profile, username: username, password: password, twoFactorCode: code) else {
             loginError = "地址无效，无法定位面板 API"
             completion(false)
             return
@@ -205,6 +209,7 @@ final class PanelSession: ObservableObject {
                     self.client = fresh
                     self.username = username
                     self.password = password
+                    self.twoFactorCode = code
                     self.overview = overview
                     self.inbounds = overview.inbounds
                     self.lastUpdated = Date()
@@ -230,6 +235,7 @@ final class PanelSession: ObservableObject {
         profile = next
         self.username = username
         self.password = password
+        twoFactorCode = ""
         client = nil
         overview = nil
         inbounds = []

@@ -9,6 +9,7 @@ struct ServerLoginSheet: View {
 
     @State private var username: String = ""
     @State private var password: String = ""
+    @State private var twoFactorCode: String = ""
     @State private var didLoad = false
     @State private var localError: String?
 
@@ -73,6 +74,24 @@ struct ServerLoginSheet: View {
                                         )
                                 }
 
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("两步验证码（未开启留空）")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(Ink.inkFaint)
+                                    TextField("面板开了 2FA 就填当前 6 位数字", text: $twoFactorCode)
+                                        .font(.system(size: 13, design: .monospaced))
+                                        .keyboardType(.numberPad)
+                                        .textContentType(.oneTimeCode)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                        .padding(.horizontal, 11)
+                                        .padding(.vertical, 9)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                                .fill(Color.white.opacity(0.75))
+                                        )
+                                }
+
                                 if let message = localError ?? session.loginError {
                                     Text(message)
                                         .font(.system(size: 11.5))
@@ -108,7 +127,7 @@ struct ServerLoginSheet: View {
                             }
                         }
 
-                        Text("面板开了两步验证或改了登录路径时，原生登录可能拿不到会话，可以先用「原版网页」登录一次，再回来刷新。")
+                        Text("3x-ui v3 要求先取 CSRF 令牌再登录，已处理好；老版本 v2 会自动跳过。两步验证码只在登录时用一次，不会存进钥匙串。")
                             .font(.system(size: 10.5))
                             .foregroundColor(Ink.inkFaint)
                             .fixedSize(horizontal: false, vertical: true)
@@ -145,7 +164,7 @@ struct ServerLoginSheet: View {
             localError = "用户名和密码都填一下吧"
             return
         }
-        session.login(username: name, password: secret) { ok in
+        session.login(username: name, password: secret, twoFactorCode: twoFactorCode) { ok in
             if ok {
                 dismiss()
             } else {
