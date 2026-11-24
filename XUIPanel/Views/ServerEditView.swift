@@ -221,8 +221,8 @@ struct ServerEditView: View {
         }
         errorMessage = nil
         testState = .testing
-        ConnectionTester.check(url: url, trustSelfSigned: draft.trustSelfSigned) { result in
-            switch result {
+        ConnectionTester.check(url: url, trustSelfSigned: draft.trustSelfSigned) { outcome in
+            switch outcome {
             case .success(let code):
                 testState = .success(code)
             case .failure(let message):

@@ -1,14 +1,20 @@
 import Foundation
 
+/// 探测结果：拿到状态码，或者一句人话的失败原因。
+enum ConnectionTestOutcome {
+    case success(Int)
+    case failure(String)
+}
+
 /// 轻量的连通性探测：只发一个 GET，看能不能拿到 HTTP 状态码。
 final class ConnectionTester: NSObject, URLSessionDataDelegate {
     private static var running: [ConnectionTester] = []
 
-    private var completion: ((Result<Int, String>) -> Void)?
+    private var completion: ((ConnectionTestOutcome) -> Void)?
     private var session: URLSession?
     private var trustSelfSigned = false
 
-    static func check(url: URL, trustSelfSigned: Bool, completion: @escaping (Result<Int, String>) -> Void) {
+    static func check(url: URL, trustSelfSigned: Bool, completion: @escaping (ConnectionTestOutcome) -> Void) {
         let tester = ConnectionTester()
         tester.trustSelfSigned = trustSelfSigned
         tester.completion = completion
@@ -37,17 +43,17 @@ final class ConnectionTester: NSObject, URLSessionDataDelegate {
         completion = nil
         guard handler != nil else { return }
 
-        let result: Result<Int, String>
+        let outcome: ConnectionTestOutcome
         if let error = error {
-            result = .failure(error.localizedDescription)
+            outcome = .failure(error.localizedDescription)
         } else if let http = response as? HTTPURLResponse {
-            result = .success(http.statusCode)
+            outcome = .success(http.statusCode)
         } else {
-            result = .success(0)
+            outcome = .success(0)
         }
 
         DispatchQueue.main.async {
-            handler?(result)
+            handler?(outcome)
             self.session?.invalidateAndCancel()
             self.session = nil
             ConnectionTester.running.removeAll { $0 === self }

@@ -1,6 +1,5 @@
 import Foundation
 import UIKit
-import UniformTypeIdentifiers
 import WebKit
 
 /// 从页面里抓出来的一张二维码。
@@ -35,7 +34,6 @@ final class PanelWebController: NSObject, ObservableObject {
     private var password: String
     private var observations: [NSKeyValueObservation] = []
     private var toastWorkItem: DispatchWorkItem?
-    private var pendingOpenPanel: (([URL]?) -> Void)?
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]
 
     init(profile: ServerProfile, username: String, password: String) {
@@ -487,29 +485,14 @@ extension PanelWebController: WKUIDelegate {
         UIHelpers.present(alert)
     }
 
-    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
-        pendingOpenPanel = completionHandler
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
-        picker.delegate = self
-        picker.allowsMultipleSelection = parameters.allowsMultipleSelection
-        picker.shouldShowFileExtensions = true
-        UIHelpers.present(picker)
-    }
+    // 文件上传：iOS 18.4 之前系统不开放 runOpenPanelWith，WKWebView 会自动用 Safari 的
+    // 文件选择流程（可见的 input[type=file] 仍可正常选文件）；18.4+ 也同样交给系统，
+    // 所以这里不再自定义上传面板，避免把最低系统版本抬到 18.4。
 }
 
 // MARK: - 文件选择 / 下载
 
-extension PanelWebController: UIDocumentPickerDelegate, WKDownloadDelegate {
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        pendingOpenPanel?(urls)
-        pendingOpenPanel = nil
-    }
-
-    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        pendingOpenPanel?(nil)
-        pendingOpenPanel = nil
-    }
-
+extension PanelWebController: WKDownloadDelegate {
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         let safeName = suggestedFilename.isEmpty ? "x-ui-download" : suggestedFilename
         var destination = downloadDirectory().appendingPathComponent(safeName)
