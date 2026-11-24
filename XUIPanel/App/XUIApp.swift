@@ -26,10 +26,10 @@ struct XUIApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .privacyLock()
                 .environmentObject(store)
                 .environmentObject(settings)
                 .environmentObject(lock)
-                .privacyLock()
                 .onAppear {
                     if settings.privacyLockEnabled && !lock.isLocked {
                         lock.lock()
