@@ -38,8 +38,8 @@ struct SubscriptionSheet: View {
                         if !links.isEmpty {
                             sectionTitle("订阅与分享链接", note: "点一下复制；右侧可生成二维码。")
                             VStack(spacing: 8) {
-                                ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                                    linkRow(link)
+                                ForEach(Array(links.indices), id: \.self) { index in
+                                    linkRow(links[index])
                                 }
                             }
                         }

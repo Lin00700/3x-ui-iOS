@@ -68,9 +68,15 @@ struct InkSeal: View {
 
 /// 纸卡片。
 struct InkCard<Content: View>: View {
-    var padding: CGFloat = 16
-    var cornerRadius: CGFloat = 18
-    @ViewBuilder var content: () -> Content
+    var padding: CGFloat
+    var cornerRadius: CGFloat
+    let content: () -> Content
+
+    init(padding: CGFloat = 16, cornerRadius: CGFloat = 18, @ViewBuilder content: @escaping () -> Content) {
+        self.padding = padding
+        self.cornerRadius = cornerRadius
+        self.content = content
+    }
 
     var body: some View {
         content()

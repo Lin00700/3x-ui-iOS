@@ -62,7 +62,7 @@ final class QuickPanelModel: ObservableObject {
         isLoading = true
         WebCookieReader.seedCookies(for: url) { [weak self] in
             guard let self = self else { return }
-            guard let client = PanelAPIClient(profile: self.profile, username: self.username, password: self.password) else {
+            guard let client = PanelAPIClient.make(profile: self.profile, username: self.username, password: self.password) else {
                 self.isLoading = false
                 self.error = "地址无效，无法定位面板 API"
                 return

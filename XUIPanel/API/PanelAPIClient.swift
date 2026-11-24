@@ -82,18 +82,29 @@ final class PanelAPIClient: NSObject {
         return root.appendingPathComponent("panel").appendingPathComponent("api")
     }
 
-    init?(profile: ServerProfile, username: String, password: String) {
+    init(rootURL: URL, apiBaseURL: URL, username: String, password: String, trustSelfSigned: Bool) {
+        self.rootURL = rootURL
+        self.apiBaseURL = apiBaseURL
+        self.username = username
+        self.password = password
+        self.trustSelfSigned = trustSelfSigned
+        super.init()
+    }
+
+    /// 从服务器档案建客户端；地址无效时返回 nil。
+    static func make(profile: ServerProfile, username: String, password: String) -> PanelAPIClient? {
         guard let url = profile.url,
               let root = PanelAPIClient.rootURL(for: url),
               let api = PanelAPIClient.apiBaseURL(for: url) else {
             return nil
         }
-        self.rootURL = root
-        self.apiBaseURL = api
-        self.username = username
-        self.password = password
-        self.trustSelfSigned = profile.trustSelfSigned
-        super.init()
+        return PanelAPIClient(
+            rootURL: root,
+            apiBaseURL: api,
+            username: username,
+            password: password,
+            trustSelfSigned: profile.trustSelfSigned
+        )
     }
 
     // MARK: - 会话
