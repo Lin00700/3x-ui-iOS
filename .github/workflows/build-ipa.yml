@@ -1,0 +1,92 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project XUIPanel.xcodeproj \
+            -scheme XUIPanel \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build 2>&1 | tee build.log
+
+      - name: Show errors
+        if: failure()
+        run: |
+          grep -E "error:" build.log | sort -u | head -80 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+
+      - name: Verify bundle
+        run: |
+          APP="build/Build/Products/Release-iphoneos/XUIPanel.app"
+          test -d "$APP" || { echo "::error::XUIPanel.app missing"; exit 1; }
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSFaceIDUsageDescription" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconFiles:0" "$APP/Info.plist" || true
+          lipo -info "$APP/XUIPanel"
+          ls -lh "$APP"
+
+      - name: Package IPA
+        run: |
+          rm -rf Payload 3x-ui-unsigned.ipa
+          mkdir -p Payload
+          cp -R "build/Build/Products/Release-iphoneos/XUIPanel.app" Payload/
+          zip -qry 3x-ui-unsigned.ipa Payload
+          shasum -a 256 3x-ui-unsigned.ipa | tee checksum.txt
+          ls -lh 3x-ui-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3x-ui-unsigned-ipa
+          path: |
+            3x-ui-unsigned.ipa
+            checksum.txt
+          if-no-files-found: error
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 3x-ui-iOS build ${{ github.run_number }}
+          body: |
+            未签名 3x-ui 面板 IPA（iOS 15+，arm64，SwiftUI + WKWebView）。
+            原版 3x-ui 网页 + 水墨外壳：多服务器、自签证书、电脑/手机 UA、填账号、
+            订阅与二维码、快捷概览（状态 / 入站启停 / 客户端链接 / 数据库备份）、Face ID 隐私锁。
+
+            自签安装前先删手机上的旧版本。面板是自签 HTTPS 时记得在服务器设置里打开「信任自签证书」。
+          files: |
+            3x-ui-unsigned.ipa
+            checksum.txt
